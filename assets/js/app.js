@@ -3,7 +3,9 @@ import {
   formatCups,
   todayKey,
   getMotivationMessage,
-  isNotificationSupported
+  isNotificationSupported,
+  loadJSON,
+  saveJSON
 } from './utils.js';
 import {
   getProfile,
@@ -53,6 +55,21 @@ const stepsCountEl = document.getElementById('stepsCount');
 const stepsStatusEl = document.getElementById('stepsStatus');
 const startStepsBtn = document.getElementById('startSteps');
 const resetStepsBtn = document.getElementById('resetSteps');
+const installBanner = document.getElementById('installBanner');
+const installButton = document.getElementById('installApp');
+const dismissInstallButton = document.getElementById('dismissInstall');
+const installBannerTitle = document.querySelector('.install-banner__title');
+const installBannerText = document.querySelector('.install-banner__text');
+
+const INSTALL_STATE_KEY = 'hidrate_plus_install_state';
+const INSTALL_DISMISS_TIMEOUT = 1000 * 60 * 60 * 24 * 3; // 3 dias
+
+let installState = {
+  dismissedAt: null,
+  installed: false,
+  ...loadJSON(INSTALL_STATE_KEY, {})
+};
+let deferredInstallPrompt = null;
 
 let currentDayKey = todayKey();
 let stepCount = getSteps(currentDayKey);
@@ -62,6 +79,10 @@ let lastStepTimestamp = 0;
 const STEP_THRESHOLD = 1.4;
 const STEP_INTERVAL = 450; // ms
 let dayWatcher = null;
+let initialController = null;
+let swRefreshing = false;
+let updateToastElement = null;
+let updateReloadTimeout = null;
 
 function init() {
   populateProfileForm();
@@ -71,6 +92,7 @@ function init() {
   updateHistoryUI();
   updateStepUI();
   setupEventListeners();
+  setupInstallPrompt();
   registerServiceWorker();
   scheduleReminders();
   startDayWatcher();
@@ -157,6 +179,188 @@ function setupEventListeners() {
   connectWatchBtn.addEventListener('click', handleWatchConnection);
   startStepsBtn.addEventListener('click', handleStartStepsToggle);
   resetStepsBtn.addEventListener('click', handleResetSteps);
+}
+
+function setupInstallPrompt() {
+  if (!installBanner) return;
+
+  if (installButton) {
+    installButton.addEventListener('click', handleInstallClick);
+  }
+
+  if (dismissInstallButton) {
+    dismissInstallButton.addEventListener('click', () => hideInstallBanner({ dismiss: true }));
+  }
+
+  window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+  window.addEventListener('appinstalled', handleAppInstalled);
+
+  const displayModeMedia = window.matchMedia('(display-mode: standalone)');
+  if (displayModeMedia?.addEventListener) {
+    displayModeMedia.addEventListener('change', event => {
+      if (event.matches) {
+        markInstalled();
+      }
+    });
+  } else if (displayModeMedia?.addListener) {
+    displayModeMedia.addListener(event => {
+      if (event.matches) {
+        markInstalled();
+      }
+    });
+  }
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && shouldShowInstallBanner()) {
+      showInstallBanner();
+    }
+  });
+
+  if (isStandalone()) {
+    markInstalled();
+    return;
+  }
+
+  if (shouldShowInstallBanner()) {
+    setTimeout(() => {
+      if (shouldShowInstallBanner()) {
+        showInstallBanner();
+      }
+    }, 1600);
+  }
+}
+
+function handleBeforeInstallPrompt(event) {
+  event.preventDefault();
+  deferredInstallPrompt = event;
+  installState.dismissedAt = null;
+  saveInstallState();
+  if (shouldShowInstallBanner()) {
+    showInstallBanner();
+  }
+}
+
+async function handleInstallClick() {
+  if (!installButton) return;
+
+  if (deferredInstallPrompt) {
+    installButton.disabled = true;
+    try {
+      deferredInstallPrompt.prompt();
+      const { outcome } = await deferredInstallPrompt.userChoice;
+      if (outcome === 'accepted') {
+        markInstalled();
+      } else {
+        hideInstallBanner({ dismiss: true, immediate: true });
+      }
+    } catch (error) {
+      console.error('Não foi possível exibir o prompt de instalação', error);
+    } finally {
+      installButton.disabled = false;
+      deferredInstallPrompt = null;
+    }
+  } else if (isIos()) {
+    hideInstallBanner({ dismiss: true, immediate: false });
+  } else {
+    hideInstallBanner({ dismiss: true, immediate: false });
+  }
+}
+
+function handleAppInstalled() {
+  markInstalled();
+  hideInstallBanner({ immediate: true });
+}
+
+function showInstallBanner() {
+  if (!installBanner || installBanner.classList.contains('visible') || !shouldShowInstallBanner()) return;
+  updateInstallCopy();
+  installBanner.setAttribute('aria-hidden', 'false');
+  if (typeof installBanner.show === 'function') {
+    if (!installBanner.open) {
+      installBanner.show();
+    }
+  } else {
+    installBanner.setAttribute('open', '');
+  }
+  requestAnimationFrame(() => installBanner.classList.add('visible'));
+}
+
+function hideInstallBanner({ dismiss = false, immediate = false } = {}) {
+  if (!installBanner) return;
+  installBanner.classList.remove('visible');
+  installBanner.setAttribute('aria-hidden', 'true');
+
+  const finalize = () => {
+    if (typeof installBanner.close === 'function') {
+      if (installBanner.open) installBanner.close();
+    } else if (installBanner.hasAttribute('open')) {
+      installBanner.removeAttribute('open');
+    }
+  };
+
+  if (immediate) {
+    finalize();
+  } else {
+    setTimeout(finalize, 280);
+  }
+
+  if (dismiss) {
+    installState.dismissedAt = Date.now();
+    saveInstallState();
+  }
+}
+
+function updateInstallCopy() {
+  if (!installBannerTitle || !installBannerText || !installButton) return;
+
+  if (deferredInstallPrompt) {
+    installBannerTitle.textContent = 'Instale o Hidrate+';
+    installBannerText.textContent = 'Acesse mais rápido e receba lembretes mesmo offline.';
+    installButton.textContent = 'Instalar agora';
+    installButton.disabled = false;
+  } else if (isIos()) {
+    installBannerTitle.textContent = 'Instale na Tela de Início';
+    installBannerText.textContent = 'No Safari, toque em Compartilhar e escolha "Adicionar à Tela de Início".';
+    installButton.textContent = 'OK, entendi';
+    installButton.disabled = false;
+  } else {
+    installBannerTitle.textContent = 'Instale o Hidrate+';
+    installBannerText.textContent = 'Use seu navegador para adicionar o app à tela inicial.';
+    installButton.textContent = 'Fechar';
+    installButton.disabled = false;
+  }
+}
+
+function shouldShowInstallBanner() {
+  if (!installBanner || document.visibilityState !== 'visible') return false;
+  if (isStandalone()) return false;
+  if (installState.installed) return false;
+  if (installState.dismissedAt) {
+    const elapsed = Date.now() - installState.dismissedAt;
+    if (elapsed < INSTALL_DISMISS_TIMEOUT) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function markInstalled() {
+  installState.installed = true;
+  installState.dismissedAt = null;
+  saveInstallState();
+  hideInstallBanner({ immediate: true });
+}
+
+function saveInstallState() {
+  saveJSON(INSTALL_STATE_KEY, installState);
+}
+
+function isStandalone() {
+  return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+}
+
+function isIos() {
+  return /iphone|ipad|ipod/i.test(window.navigator.userAgent);
 }
 
 function handleProfileSubmit(event) {
@@ -293,11 +497,34 @@ function updateReminderStatus(progress = null) {
 }
 
 function registerServiceWorker() {
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./service-worker.js').catch(error => {
+  if (!('serviceWorker' in navigator)) {
+    return;
+  }
+
+  initialController = navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener('controllerchange', handleControllerChange);
+  navigator.serviceWorker.addEventListener('message', handleServiceWorkerMessage);
+
+  navigator.serviceWorker
+    .register('./service-worker.js')
+    .then(registration => {
+      if (registration.waiting) {
+        requestServiceWorkerSkipWaiting(registration.waiting);
+      }
+
+      registration.addEventListener('updatefound', () => {
+        const newWorker = registration.installing;
+        if (!newWorker) return;
+        newWorker.addEventListener('statechange', () => {
+          if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+            requestServiceWorkerSkipWaiting(newWorker);
+          }
+        });
+      });
+    })
+    .catch(error => {
       console.error('Falha ao registrar service worker', error);
     });
-  }
 }
 
 function updateStepUI() {
@@ -400,6 +627,73 @@ function startDayWatcher() {
       updateStepUI();
     }
   }, 60 * 1000);
+}
+
+function handleControllerChange() {
+  if (!initialController) {
+    initialController = navigator.serviceWorker.controller;
+    return;
+  }
+
+  if (swRefreshing) {
+    return;
+  }
+
+  swRefreshing = true;
+  showUpdateToast();
+}
+
+function handleServiceWorkerMessage(event) {
+  if (!event.data || !event.data.type) return;
+  if (['CACHE_UPDATED', 'SW_UPDATED'].includes(event.data.type)) {
+    showUpdateToast();
+  }
+}
+
+function requestServiceWorkerSkipWaiting(worker) {
+  if (!worker || worker.state === 'redundant') {
+    return;
+  }
+
+  try {
+    worker.postMessage({ type: 'SKIP_WAITING' });
+  } catch (error) {
+    console.error('Não foi possível sinalizar skipWaiting para o service worker', error);
+  }
+}
+
+function showUpdateToast() {
+  if (updateToastElement) {
+    if (!updateReloadTimeout) {
+      updateReloadTimeout = setTimeout(() => window.location.reload(), 6000);
+    }
+    return;
+  }
+
+  updateToastElement = document.createElement('div');
+  updateToastElement.className = 'update-toast';
+  updateToastElement.setAttribute('role', 'status');
+  updateToastElement.setAttribute('aria-live', 'polite');
+  updateToastElement.innerHTML = `
+    <span><strong>Atualização pronta.</strong> O app será recarregado para aplicar melhorias.</span>
+    <button type="button" class="update-toast__action">Atualizar agora</button>
+  `;
+
+  document.body.appendChild(updateToastElement);
+
+  const actionButton = updateToastElement.querySelector('.update-toast__action');
+  const reload = () => {
+    if (updateReloadTimeout) {
+      clearTimeout(updateReloadTimeout);
+    }
+    window.location.reload();
+  };
+
+  if (actionButton) {
+    actionButton.addEventListener('click', reload, { once: true });
+  }
+
+  updateReloadTimeout = setTimeout(reload, 6000);
 }
 
 init();

@@ -1,5 +1,5 @@
-const CACHE_NAME = 'hidrate-plus-cache-v1';
-const BASE_PATH = self.location.pathname.replace(/service-worker\.js$/, '');
+const CACHE_NAME = 'hidrate-plus-cache-v2';
+const BASE_PATH = globalThis.location.pathname.replace(/service-worker\.js$/, '');
 const OFFLINE_URLS = [
   `${BASE_PATH}`,
   `${BASE_PATH}index.html`,
@@ -15,13 +15,13 @@ const OFFLINE_URLS = [
   `${BASE_PATH}assets/img/icons/icon-512.svg`
 ];
 
-self.addEventListener('install', event => {
+globalThis.addEventListener('install', event => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then(cache => cache.addAll(OFFLINE_URLS)).then(() => self.skipWaiting())
+    caches.open(CACHE_NAME).then(cache => cache.addAll(OFFLINE_URLS)).then(() => globalThis.skipWaiting())
   );
 });
 
-self.addEventListener('activate', event => {
+globalThis.addEventListener('activate', event => {
   event.waitUntil(
     caches.keys().then(keys =>
       Promise.all(
@@ -29,10 +29,27 @@ self.addEventListener('activate', event => {
       )
     )
   );
-  self.clients.claim();
+  globalThis.clients.claim();
 });
 
-self.addEventListener('fetch', event => {
+globalThis.addEventListener('message', event => {
+  if (!event.data) return;
+
+  if (event.origin && event.origin !== globalThis.location.origin) {
+    return;
+  }
+
+  const sourceUrl = event.source && 'url' in event.source ? event.source.url : null;
+  if (sourceUrl && new URL(sourceUrl).origin !== globalThis.location.origin) {
+    return;
+  }
+
+  if (event.data.type === 'SKIP_WAITING') {
+    globalThis.skipWaiting();
+  }
+});
+
+globalThis.addEventListener('fetch', event => {
   const { request } = event;
   if (request.method !== 'GET') {
     return;
@@ -53,14 +70,14 @@ self.addEventListener('fetch', event => {
   );
 });
 
-self.addEventListener('notificationclick', event => {
+globalThis.addEventListener('notificationclick', event => {
   event.notification.close();
   event.waitUntil(
-    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clientList => {
+    globalThis.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clientList => {
       if (clientList.length > 0) {
         return clientList[0].focus();
       }
-      return self.clients.openWindow('/');
+      return globalThis.clients.openWindow(BASE_PATH || '/');
     })
   );
 });
