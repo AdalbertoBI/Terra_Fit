@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hidrate+</title>
+    <meta name="description" content="Hidrate+ ajuda você a calcular sua necessidade diária de água e manter lembretes inteligentes para uma hidratação saudável.">
+    <meta name="theme-color" content="#4da3ff">
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="assets/img/icons/icon-192.svg">
+    <link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+    <header class="app-header">
+        <div class="title-area">
+            <img src="assets/img/icons/icon-192.svg" alt="Ícone Hidrate+" class="logo">
+            <div>
+                <h1>Hidrate+</h1>
+                <p class="subtitle">Seu assistente pessoal de hidratação</p>
+            </div>
+        </div>
+        <button id="themeToggle" class="theme-toggle" aria-label="Alternar modo escuro">🌙</button>
+    </header>
+
+    <main>
+        <section class="card" id="profileCard">
+            <h2>Seu perfil</h2>
+            <form id="profileForm">
+                <div class="form-grid">
+                    <label>
+                        Nome
+                        <input type="text" id="name" name="name" required>
+                    </label>
+                    <label>
+                        Idade
+                        <input type="number" id="age" name="age" min="10" max="110" required>
+                    </label>
+                    <label>
+                        Sexo
+                        <select id="sex" name="sex" required>
+                            <option value="">Selecione</option>
+                            <option value="feminino">Feminino</option>
+                            <option value="masculino">Masculino</option>
+                            <option value="outro">Outro</option>
+                        </select>
+                    </label>
+                    <label>
+                        Peso (kg)
+                        <input type="number" id="weight" name="weight" min="30" max="250" step="0.1" required>
+                    </label>
+                    <label>
+                        Altura (cm)
+                        <input type="number" id="height" name="height" min="120" max="220" required>
+                    </label>
+                    <label>
+                        Nível de atividade
+                        <select id="activity" name="activity">
+                            <option value="sedentario">Sedentário</option>
+                            <option value="ativo">Ativo</option>
+                            <option value="atleta">Atleta</option>
+                        </select>
+                    </label>
+                </div>
+                <button type="submit" class="primary" id="saveProfile">Salvar perfil</button>
+            </form>
+        </section>
+
+        <section class="card" id="settingsCard">
+            <h2>Lembretes e preferências</h2>
+            <div class="settings-grid">
+                <label>
+                    Intervalo entre lembretes (minutos)
+                    <input type="number" id="reminderInterval" min="15" max="240" step="15" value="60">
+                </label>
+                <label>
+                    Quantidade por registro (ml)
+                    <input type="number" id="drinkAmount" min="100" max="500" step="50" value="200">
+                </label>
+            </div>
+            <div class="settings-actions">
+                <button class="secondary" id="requestNotifications">Ativar notificações</button>
+                <p class="hint">As notificações funcionam offline quando o app estiver instalado como PWA.</p>
+            </div>
+        </section>
+
+        <section class="card" id="statusCard">
+            <h2>Sua meta de hoje</h2>
+            <div class="status-grid">
+                <div class="stat">
+                    <span class="stat-label">Total recomendado</span>
+                    <span class="stat-value" id="dailyNeed">0 ml</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-label">Copos de 200 ml</span>
+                    <span class="stat-value" id="cupsCount">0</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-label">Consumido hoje</span>
+                    <span class="stat-value" id="consumedToday">0 ml</span>
+                </div>
+            </div>
+            <div class="progress">
+                <div class="progress-bar" id="progressBar"></div>
+            </div>
+            <p class="progress-message" id="motivationMessage">Vamos começar sua jornada de hidratação!</p>
+            <div class="actions">
+                <button class="primary" id="drinkNow">Bebi agora</button>
+                <button class="secondary" id="resetProgress">Reiniciar dia</button>
+            </div>
+        </section>
+
+        <section class="card" id="historyCard">
+            <h2>Histórico diário</h2>
+            <ul id="historyList" class="history-list"></ul>
+            <canvas id="weeklyChart" width="400" height="220" aria-label="Gráfico semanal de ingestão de água" role="img"></canvas>
+        </section>
+
+        <section class="card" id="remindersCard">
+            <h2>Lembretes ativos</h2>
+            <p id="reminderStatus">Nenhum lembrete configurado.</p>
+        </section>
+
+        <section class="card" id="activityCard">
+            <h2>Atividade diária</h2>
+            <div class="activity-status">
+                <div class="stat">
+                    <span class="stat-label">Passos hoje</span>
+                    <span class="stat-value" id="stepsCount">0</span>
+                </div>
+                <p class="hint" id="stepsStatus">Ative o contador para acompanhar seus passos e ajustar sua hidratação.</p>
+            </div>
+            <div class="actions">
+                <button class="secondary" id="startSteps">Iniciar contador</button>
+                <button class="secondary" id="resetSteps">Zerar passos</button>
+            </div>
+        </section>
+
+        <section class="card" id="bluetoothCard">
+            <h2>Integração com smartwatch</h2>
+            <p>Conecte um smartwatch compatível para sincronizar passos e ajustar sua meta automaticamente.</p>
+            <button class="secondary" id="connectWatch">Conectar smartwatch</button>
+            <p class="hint" id="watchStatus">Nenhum dispositivo conectado.</p>
+        </section>
+    </main>
+
+    <footer class="app-footer">
+        <p>Dados baseados em recomendações da OMS, ACSM e estudos recentes sobre hidratação individualizada.</p>
+    </footer>
+
+    <script src="assets/js/utils.js" type="module"></script>
+    <script src="assets/js/app.js" type="module"></script>
+</body>
+</html>

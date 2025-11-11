@@ -1,0 +1,25 @@
+{
+  "name": "Hidrate+",
+  "short_name": "Hidrate+",
+  "lang": "pt-BR",
+  "description": "Calcule sua meta de hidratação e receba lembretes inteligentes com a PWA Hidrate+.",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#f7fbff",
+  "theme_color": "#4da3ff",
+  "icons": [
+    {
+      "src": "assets/img/icons/icon-192.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "assets/img/icons/icon-512.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ],
+  "scope": "."
+}
