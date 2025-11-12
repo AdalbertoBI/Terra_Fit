@@ -95,20 +95,29 @@
             <h2>Sua meta de hoje</h2>
             <div class="status-grid">
                 <div class="stat">
-                    <span class="stat-label">Total recomendado</span>
+                    <span class="stat-label">Meta diária</span>
                     <span class="stat-value" id="dailyNeed">0 ml</span>
+                    <span class="stat-helper" id="dailyNeedHelper">Personalizada com base no seu perfil</span>
                 </div>
                 <div class="stat">
-                    <span class="stat-label">Copos de 200 ml</span>
-                    <span class="stat-value" id="cupsCount">0</span>
+                    <span class="stat-label" id="portionLabel">Dose padrão</span>
+                    <span class="stat-value" id="portionValue">0 ml</span>
+                    <span class="stat-helper" id="portionHelper">Edite em preferências</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-label">Ingestões recomendadas</span>
+                    <span class="stat-value" id="dailySessions">0</span>
+                    <span class="stat-helper">Restam <strong id="sessionsRemaining">0</strong></span>
                 </div>
                 <div class="stat">
                     <span class="stat-label">Consumido hoje</span>
                     <span class="stat-value" id="consumedToday">0 ml</span>
+                    <span class="stat-helper">Faltam <strong id="remainingMl">0 ml</strong></span>
                 </div>
                 <div class="stat">
-                    <span class="stat-label">Ingestões diárias</span>
-                    <span class="stat-value" id="dailySessions">0</span>
+                    <span class="stat-label">Ingestões registradas</span>
+                    <span class="stat-value" id="sessionsCompleted">0</span>
+                    <span class="stat-helper">Último registro <strong id="lastDrinkTime">--</strong></span>
                 </div>
             </div>
             <div class="progress">
@@ -122,16 +131,29 @@
                 </div>
                 <span class="next-reminder__countdown" id="nextReminderCountdown">Configure horários para iniciar os alertas.</span>
             </div>
-            <div class="actions">
-                <button class="primary" id="drinkNow">Bebi agora</button>
+            <div class="actions actions--primary">
+                <button class="primary" id="drinkNow">Registrar dose padrão</button>
                 <button class="secondary" id="resetProgress">Reiniciar dia</button>
+            </div>
+            <div class="quick-intake" aria-label="Registrar ingestões rapidamente">
+                <div class="quick-intake__pills" id="quickAddList"></div>
+                <form class="custom-intake" id="customLogForm" novalidate>
+                    <label for="customAmount">Registrar volume personalizado</label>
+                    <div class="custom-intake__field">
+                        <input type="number" id="customAmount" min="50" max="2000" step="10" value="200" inputmode="numeric">
+                        <button type="submit" class="secondary">Adicionar registro</button>
+                    </div>
+                </form>
             </div>
         </section>
 
         <section class="card" id="historyCard">
             <h2>Histórico diário</h2>
             <ul id="historyList" class="history-list"></ul>
-            <canvas id="weeklyChart" width="400" height="220" aria-label="Gráfico semanal de ingestão de água" role="img"></canvas>
+            <figure class="chart-wrapper">
+                <canvas id="weeklyChart" width="400" height="220" aria-describedby="weeklyChartCaption"></canvas>
+                <figcaption id="weeklyChartCaption" class="hint">Sua evolução de hidratação nos últimos 7 dias.</figcaption>
+            </figure>
         </section>
 
         <section class="card" id="remindersCard">

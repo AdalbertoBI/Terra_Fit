@@ -1,11 +1,11 @@
 import {
   formatMl,
-  formatCups,
   todayKey,
   getMotivationMessage,
   isNotificationSupported,
   loadJSON,
-  saveJSON
+  saveJSON,
+  clamp
 } from './utils.js';
 import {
   getProfile,
@@ -56,11 +56,20 @@ const requestNotificationsBtn = document.getElementById('requestNotifications');
 const reminderStatus = document.getElementById('reminderStatus');
 const drinkNowBtn = document.getElementById('drinkNow');
 const resetProgressBtn = document.getElementById('resetProgress');
+const quickAddList = document.getElementById('quickAddList');
+const customLogForm = document.getElementById('customLogForm');
+const customAmountInput = document.getElementById('customAmount');
 const dailyNeedEl = document.getElementById('dailyNeed');
-const cupsCountEl = document.getElementById('cupsCount');
+const dailyNeedHelperEl = document.getElementById('dailyNeedHelper');
+const portionValueEl = document.getElementById('portionValue');
+const portionHelperEl = document.getElementById('portionHelper');
 const consumedTodayEl = document.getElementById('consumedToday');
 const progressBarEl = document.getElementById('progressBar');
 const dailySessionsEl = document.getElementById('dailySessions');
+const sessionsRemainingEl = document.getElementById('sessionsRemaining');
+const sessionsCompletedEl = document.getElementById('sessionsCompleted');
+const remainingMlEl = document.getElementById('remainingMl');
+const lastDrinkTimeEl = document.getElementById('lastDrinkTime');
 const motivationMessageEl = document.getElementById('motivationMessage');
 const historyListEl = document.getElementById('historyList');
 const weeklyChartCanvas = document.getElementById('weeklyChart');
@@ -83,6 +92,7 @@ const baseDocumentTitle = document.title || 'Hidrate+';
 
 const INSTALL_STATE_KEY = 'hidrate_plus_install_state';
 const INSTALL_DISMISS_TIMEOUT = 1000 * 60 * 60 * 24 * 3; // 3 dias
+const QUICK_ADD_PRESETS = [150, 200, 250, 300, 500];
 
 let installState = {
   dismissedAt: null,
@@ -105,11 +115,27 @@ let updateToastElement = null;
 let updateReloadTimeout = null;
 let currentProgress = 0;
 let lastCountdownState = null;
+let lastRecordedAmount = Number(settings.drinkAmount) || 200;
+let lastDailySummary = {
+  todayTotal: 0,
+  drinkAmount: Number(settings.drinkAmount) || 200,
+  recommendedSessions: 0,
+  completedSessions: 0,
+  remainingVolume: 0,
+  remainingSessions: 0
+};
 
 function init() {
   populateProfileForm();
   populateSettings();
   applyTheme(settings.theme);
+  const todayEntries = getHistory()[todayKey()]?.entries || [];
+  if (todayEntries.length) {
+    const lastEntry = todayEntries[todayEntries.length - 1];
+    if (lastEntry?.amount) {
+      lastRecordedAmount = Number(lastEntry.amount);
+    }
+  }
   updateDailyNeeds();
   updateHistoryUI();
   updateStepUI();
@@ -145,6 +171,11 @@ function populateSettings() {
   if (reminderEndInput) {
     reminderEndInput.value = settings.endTime || '21:00';
   }
+  if (customAmountInput) {
+    customAmountInput.value = settings.drinkAmount;
+    customAmountInput.placeholder = formatMl(settings.drinkAmount);
+    delete customAmountInput.dataset.userEdited;
+  }
 }
 
 function applyTheme(theme) {
@@ -161,16 +192,65 @@ function updateDailyNeeds() {
   const todayKeyValue = todayKey();
   const history = getHistory();
   const todayTotal = history[todayKeyValue]?.total || 0;
-  const drinkAmount = Number(settings.drinkAmount) || 200;
+  const drinkAmount = Math.max(Number(settings.drinkAmount) || 0, 1);
   const recommendedSessions = Math.max(1, Math.ceil(dailyNeed.totalMl / drinkAmount));
+  const completedSessions = Math.floor(todayTotal / drinkAmount);
+  const remainingVolume = Math.max(dailyNeed.totalMl - todayTotal, 0);
+  const remainingSessions = remainingVolume > 0 ? Math.ceil(remainingVolume / drinkAmount) : 0;
+  const lastEntry = history[todayKeyValue]?.entries?.slice(-1)[0];
+
+  lastDailySummary = {
+    todayTotal,
+    drinkAmount,
+    recommendedSessions,
+    completedSessions,
+    remainingVolume,
+    remainingSessions
+  };
+
+  dailyNeedEl.textContent = formatMl(dailyNeed.totalMl);
+  if (dailyNeedHelperEl) {
+    dailyNeedHelperEl.textContent = `Equivalente a ${recommendedSessions.toLocaleString('pt-BR')} doses de ${formatMl(drinkAmount)}.`;
+  }
+
+  if (portionValueEl) {
+    portionValueEl.textContent = formatMl(drinkAmount);
+  }
+  if (portionHelperEl) {
+    portionHelperEl.textContent = `Cada registro adiciona ${formatMl(drinkAmount)} à sua meta.`;
+  }
+
+  if (drinkNowBtn) {
+    drinkNowBtn.textContent = `Registrar ${formatMl(drinkAmount)}`;
+    drinkNowBtn.setAttribute('aria-label', `Registrar ${formatMl(drinkAmount)} agora`);
+  }
+
+  renderQuickAddButtons(drinkAmount, lastRecordedAmount || drinkAmount);
+
+  if (customAmountInput) {
+    customAmountInput.placeholder = formatMl(drinkAmount);
+    if (!customAmountInput.dataset.userEdited) {
+      customAmountInput.value = drinkAmount;
+    }
+  }
 
   if (dailySessionsEl) {
     dailySessionsEl.textContent = recommendedSessions.toLocaleString('pt-BR');
   }
+  if (sessionsRemainingEl) {
+    sessionsRemainingEl.textContent = remainingSessions.toLocaleString('pt-BR');
+  }
 
-  dailyNeedEl.textContent = formatMl(dailyNeed.totalMl);
-  cupsCountEl.textContent = formatCups(dailyNeed.cups);
   consumedTodayEl.textContent = formatMl(todayTotal);
+  if (remainingMlEl) {
+    remainingMlEl.textContent = formatMl(remainingVolume);
+  }
+  if (sessionsCompletedEl) {
+    sessionsCompletedEl.textContent = completedSessions.toLocaleString('pt-BR');
+  }
+  if (lastDrinkTimeEl) {
+    lastDrinkTimeEl.textContent = lastEntry ? formatRelativeTime(lastEntry.timestamp) : '--';
+  }
 
   const progress = calculateProgress(todayTotal, dailyNeed.totalMl);
   currentProgress = progress;
@@ -180,6 +260,7 @@ function updateDailyNeeds() {
   progressBarEl.setAttribute('aria-valuemax', 100);
   motivationMessageEl.textContent = getMotivationMessage(progress);
   renderWeeklyChart(weeklyChartCanvas, getWeeklyHistory(), dailyNeed.totalMl);
+    updateReminderStatus(lastCountdownState);
 }
 
 function updateHistoryUI() {
@@ -221,6 +302,19 @@ function setupEventListeners() {
   requestNotificationsBtn.addEventListener('click', handleNotificationRequest);
   drinkNowBtn.addEventListener('click', handleDrinkNow);
   resetProgressBtn.addEventListener('click', handleResetProgress);
+  if (quickAddList) {
+    quickAddList.addEventListener('click', handleQuickAddClick);
+  }
+  if (customLogForm) {
+    customLogForm.addEventListener('submit', handleCustomLogSubmit);
+  }
+  if (customAmountInput) {
+    const markEdited = () => {
+      customAmountInput.dataset.userEdited = 'true';
+    };
+    customAmountInput.addEventListener('input', markEdited);
+    customAmountInput.addEventListener('focus', markEdited);
+  }
   themeToggle.addEventListener('click', () => applyTheme(settings.theme === 'dark' ? 'light' : 'dark'));
   connectWatchBtn.addEventListener('click', handleWatchConnection);
   startStepsBtn.addEventListener('click', handleStartStepsToggle);
@@ -432,9 +526,19 @@ function handleReminderIntervalChange(event) {
 }
 
 function handleDrinkAmountChange(event) {
+  const min = Number(drinkAmountInput.min) || 50;
+  const max = Number(drinkAmountInput.max) || 1000;
   const value = Number(event.target.value);
-  settings = { ...settings, drinkAmount: value };
+  const sanitized = clamp(value, min, max);
+  drinkAmountInput.value = sanitized;
+  settings = { ...settings, drinkAmount: sanitized };
   saveSettings(settings);
+  lastRecordedAmount = sanitized;
+  if (customAmountInput) {
+    delete customAmountInput.dataset.userEdited;
+    customAmountInput.value = sanitized;
+    customAmountInput.placeholder = formatMl(sanitized);
+  }
   updateDailyNeeds();
   scheduleReminders();
 }
@@ -454,19 +558,113 @@ async function handleNotificationRequest() {
 }
 
 function handleDrinkNow() {
-  const amount = Number(settings.drinkAmount) || 200;
-  const today = addConsumption(amount);
-  consumedTodayEl.textContent = formatMl(today.total);
+  registerIntake(Number(settings.drinkAmount) || 200, 'default-button');
+}
+
+function handleQuickAddClick(event) {
+  if (!quickAddList) return;
+  const button = event.target.closest('button[data-amount]');
+  if (!button) {
+    return;
+  }
+
+  const amount = Number(button.dataset.amount);
+  if (!amount) {
+    return;
+  }
+
+  registerIntake(amount, 'quick-add');
+}
+
+function handleCustomLogSubmit(event) {
+  event.preventDefault();
+  if (!customAmountInput) {
+    return;
+  }
+
+  const value = Number(customAmountInput.value);
+  if (!Number.isFinite(value) || value <= 0) {
+    customAmountInput.focus();
+    return;
+  }
+
+  customAmountInput.dataset.userEdited = 'true';
+  registerIntake(value, 'custom-form');
+  customAmountInput.focus();
+  customAmountInput.select();
+}
+
+function handleResetProgress() {
+  resetDay();
+  lastRecordedAmount = Number(settings.drinkAmount) || 200;
   updateDailyNeeds();
   updateReminderStatus(lastCountdownState);
   updateHistoryUI();
 }
 
-function handleResetProgress() {
-  resetDay();
+function registerIntake(amount, source = 'default-button') {
+  const minVolume = Number(customAmountInput?.min) || 50;
+  const maxVolume = Number(customAmountInput?.max) || 2000;
+  const numericAmount = Number(amount);
+
+  if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
+    return;
+  }
+
+  const normalized = clamp(Math.round(numericAmount / 10) * 10, minVolume, maxVolume);
+  const today = addConsumption(normalized);
+  lastRecordedAmount = normalized;
+  consumedTodayEl.textContent = formatMl(today.total);
   updateDailyNeeds();
-  updateReminderStatus(lastCountdownState);
   updateHistoryUI();
+  updateCountdownUI(lastCountdownState);
+
+  if (source === 'custom-form' && customAmountInput) {
+    customAmountInput.value = normalized;
+  }
+}
+
+function renderQuickAddButtons(drinkAmount, highlightAmount) {
+  if (!quickAddList) {
+    return;
+  }
+
+  const minVolume = Number(customAmountInput?.min) || 50;
+  const maxVolume = Number(customAmountInput?.max) || 2000;
+  const amounts = Array.from(new Set([
+    ...QUICK_ADD_PRESETS,
+    drinkAmount,
+    highlightAmount
+  ].filter(Boolean)))
+    .map(value => Math.round(Number(value)))
+    .filter(value => Number.isFinite(value) && value >= minVolume && value <= maxVolume)
+    .sort((a, b) => a - b);
+
+  quickAddList.innerHTML = '';
+
+  if (!amounts.length) {
+    const fallback = document.createElement('p');
+    fallback.className = 'hint';
+    fallback.textContent = 'Ajuste a faixa de volume para exibir sugestões rápidas.';
+    quickAddList.appendChild(fallback);
+    return;
+  }
+
+  amounts.forEach(amount => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'quick-pill';
+    if (amount === Math.round(Number(drinkAmount))) {
+      button.classList.add('quick-pill--primary');
+    }
+    if (highlightAmount && amount === Math.round(Number(highlightAmount))) {
+      button.classList.add('quick-pill--recent');
+    }
+    button.dataset.amount = amount;
+    button.textContent = `+${formatMl(amount)}`;
+    button.setAttribute('aria-label', `Registrar ${formatMl(amount)}`);
+    quickAddList.appendChild(button);
+  });
 }
 
 async function handleWatchConnection() {
@@ -546,23 +744,27 @@ function updateReminderStatus(state = lastCountdownState) {
     return;
   }
 
+  const doseLabel = formatMl(lastDailySummary.drinkAmount || Number(settings.drinkAmount) || 200);
+  const remainingMlLabel = formatMl(lastDailySummary.remainingVolume);
+  const dosesLabel = lastDailySummary.remainingSessions === 1 ? 'dose' : 'doses';
+
   if (!state || !state.timestamp) {
     switch (state?.reason) {
       case 'missing-interval':
-        reminderStatus.textContent = 'Defina um intervalo válido para iniciar os lembretes.';
+        reminderStatus.textContent = 'Defina um intervalo válido e salve as preferências para ativar os lembretes.';
         break;
       case 'missing-permission':
-        reminderStatus.textContent = 'Permita notificações para ativar os lembretes.';
+        reminderStatus.textContent = `Permita notificações para ativar os lembretes e receber alertas de ${doseLabel}.`;
         break;
       case 'unsupported':
         reminderStatus.textContent = 'Seu navegador não suporta notificações.';
         break;
       case 'calculating':
-        reminderStatus.textContent = 'Calculando próximo lembrete...';
+        reminderStatus.textContent = 'Calculando próximo lembrete com base na sua janela configurada.';
         break;
       case 'inactive':
       default:
-        reminderStatus.textContent = `Janela de lembretes entre ${state?.startTimeLabel || settings.startTime || '06:00'} e ${state?.endTimeLabel || settings.endTime || '21:00'}.`;
+        reminderStatus.textContent = `Lembretes ativos entre ${state?.startTimeLabel || settings.startTime || '06:00'} e ${state?.endTimeLabel || settings.endTime || '21:00'} • Dose padrão ${doseLabel}.`;
     }
     return;
   }
@@ -572,11 +774,15 @@ function updateReminderStatus(state = lastCountdownState) {
     : `em ${state.formattedDistance}`;
 
   if (currentProgress >= 100) {
-    reminderStatus.textContent = `Meta alcançada! Próximo lembrete às ${state.formattedTime} (${countdownLabel}).`;
+    reminderStatus.textContent = `Meta alcançada! Próximo lembrete às ${state.formattedTime} (${countdownLabel}). Continue com doses de manutenção de ${doseLabel}.`;
     return;
   }
 
-  reminderStatus.textContent = `Notificações a cada ${interval} minutos. Próximo lembrete às ${state.formattedTime} (${countdownLabel}).`;
+  if (lastDailySummary.remainingSessions > 0) {
+    reminderStatus.textContent = `Notificações a cada ${interval} minutos. Próximo lembrete às ${state.formattedTime} (${countdownLabel}). Restam ${lastDailySummary.remainingSessions.toLocaleString('pt-BR')} ${dosesLabel} (${remainingMlLabel}). Dose padrão ${doseLabel}.`;
+  } else {
+    reminderStatus.textContent = `Notificações a cada ${interval} minutos. Próximo lembrete às ${state.formattedTime} (${countdownLabel}). Use ${doseLabel} para manutenção.`;
+  }
 }
 
 function registerServiceWorker() {
@@ -812,6 +1018,9 @@ function updateCountdownUI(state) {
 
   const startLabel = state?.startTimeLabel || settings.startTime || '06:00';
   const endLabel = state?.endTimeLabel || settings.endTime || '21:00';
+  const doseLabel = formatMl(lastDailySummary.drinkAmount || Number(settings.drinkAmount) || 200);
+  const remainingMlLabel = formatMl(lastDailySummary.remainingVolume);
+  const dosesLabel = lastDailySummary.remainingSessions === 1 ? 'dose' : 'doses';
 
   if (!state || !state.timestamp) {
     nextReminderTimeEl.textContent = '--:--';
@@ -831,7 +1040,7 @@ function updateCountdownUI(state) {
         break;
       case 'inactive':
       default:
-        message = `Aguardando próxima janela a partir de ${startLabel}.`;
+        message = `Aguardando próxima janela a partir de ${startLabel}. Dose padrão ${doseLabel}.`;
     }
     nextReminderCountdownEl.textContent = message;
     document.title = baseDocumentTitle;
@@ -841,13 +1050,22 @@ function updateCountdownUI(state) {
 
   nextReminderTimeEl.textContent = state.formattedTime;
   if (state.remainingMs != null && state.remainingMs <= 0) {
-    nextReminderCountdownEl.textContent = 'Chegou a hora! Beba água agora.';
+    const maintenanceLabel = lastDailySummary.remainingSessions > 0
+      ? `Beba ${doseLabel} agora.`
+      : `Dose de manutenção sugerida: ${doseLabel}.`;
+    nextReminderCountdownEl.textContent = `Chegou a hora! ${maintenanceLabel}`;
   } else {
-    nextReminderCountdownEl.textContent = `Em ${state.formattedDistance}`;
+    const remainingInfo = lastDailySummary.remainingSessions > 0
+      ? ` • Restam ${lastDailySummary.remainingSessions.toLocaleString('pt-BR')} ${dosesLabel} (${remainingMlLabel})`
+      : ' • Hidratação de manutenção';
+    nextReminderCountdownEl.textContent = `Em ${state.formattedDistance}${remainingInfo}`;
   }
 
   if (document.visibilityState === 'hidden' && state.remainingMs && state.remainingMs > 0) {
-    document.title = `💧 Em ${state.formattedDistance}`;
+    const dosesSuffix = lastDailySummary.remainingSessions > 0
+      ? ` • ${lastDailySummary.remainingSessions}x`
+      : '';
+    document.title = `💧 ${state.formattedDistance}${dosesSuffix}`;
   } else {
     document.title = baseDocumentTitle;
   }
@@ -856,10 +1074,8 @@ function updateCountdownUI(state) {
 }
 
 function buildReminderNotificationPayload() {
-  const history = getHistory();
-  const todayTotal = history[todayKey()]?.total || 0;
-  const remainingMl = Math.max(dailyNeed.totalMl - todayTotal, 0);
-  const drinkAmount = Number(settings.drinkAmount) || 200;
+  const remainingMl = lastDailySummary.remainingVolume;
+  const drinkAmount = lastDailySummary.drinkAmount || Number(settings.drinkAmount) || 200;
   const suggestionAmount = remainingMl > 0 ? Math.min(drinkAmount, remainingMl) : drinkAmount;
   const remainingDoses = remainingMl > 0 ? Math.max(1, Math.ceil(remainingMl / drinkAmount)) : 0;
 
@@ -891,4 +1107,51 @@ function normalizeTimeValue(value, fallback) {
   const hours = Math.min(23, Math.max(0, Number(match[1])));
   const minutes = Math.min(59, Math.max(0, Number(match[2])));
   return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+}
+
+function formatRelativeTime(value) {
+  if (!value) {
+    return '--';
+  }
+
+  const date = typeof value === 'string' ? new Date(value) : new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return '--';
+  }
+
+  const diff = Date.now() - date.getTime();
+  if (diff <= 45000) {
+    return 'agora';
+  }
+
+  const seconds = Math.floor(diff / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+
+  if (minutes < 1) {
+    return 'agora';
+  }
+
+  if (minutes === 1) {
+    return 'há 1 minuto';
+  }
+
+  if (minutes < 60) {
+    return `há ${minutes} minutos`;
+  }
+
+  if (hours === 1) {
+    return 'há 1 hora';
+  }
+
+  if (hours < 24) {
+    return `há ${hours} horas`;
+  }
+
+  if (days === 1) {
+    return 'ontem';
+  }
+
+  return date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 }

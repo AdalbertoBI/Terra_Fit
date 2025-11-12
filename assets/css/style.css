@@ -201,6 +201,17 @@ input:focus, select:focus {
     font-weight: 700;
 }
 
+.stat-helper {
+    font-size: 0.8rem;
+    color: var(--color-muted);
+    font-weight: 500;
+}
+
+.stat-helper strong {
+    color: var(--color-primary);
+    font-weight: 700;
+}
+
 .next-reminder {
     margin: 18px 0;
     padding: 14px 16px;
@@ -260,6 +271,93 @@ input:focus, select:focus {
     flex-wrap: wrap;
 }
 
+.quick-intake {
+    margin-top: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.quick-intake__pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.quick-pill {
+    border: 1px solid var(--color-border);
+    background: var(--color-bg);
+    color: var(--color-text);
+    padding: 10px 16px;
+    border-radius: 999px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 0.15s ease, box-shadow 0.2s ease, background 0.2s ease, color 0.2s ease;
+}
+
+.quick-pill:hover {
+    box-shadow: 0 10px 18px rgba(77, 163, 255, 0.18);
+    border-color: var(--color-primary);
+}
+
+.quick-pill:active {
+    transform: translateY(1px);
+}
+
+.quick-pill:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(77, 163, 255, 0.35);
+    border-color: var(--color-primary);
+}
+
+.quick-pill--primary {
+    background: linear-gradient(135deg, var(--color-primary), var(--color-primary-dark));
+    color: #fff;
+    border-color: transparent;
+    box-shadow: 0 12px 24px rgba(77, 163, 255, 0.3);
+}
+
+.quick-pill--recent {
+    position: relative;
+}
+
+.quick-pill--recent::after {
+    content: '•';
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    background: var(--color-primary);
+    color: #fff;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    font-size: 0.7rem;
+    display: grid;
+    place-items: center;
+}
+
+.custom-intake {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.custom-intake__field {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.custom-intake__field input {
+    flex: 1 1 160px;
+}
+
+.custom-intake__field button {
+    flex: 0 0 auto;
+    white-space: nowrap;
+}
+
 .history-list {
     list-style: none;
     padding: 0;
@@ -276,6 +374,17 @@ input:focus, select:focus {
     border-radius: 14px;
     padding: 12px 14px;
     border: 1px solid var(--color-border);
+}
+
+.chart-wrapper {
+    margin: 16px 0 0;
+}
+
+.chart-wrapper figcaption {
+    margin-top: 8px;
+    text-align: center;
+    font-size: 0.8rem;
+    color: var(--color-muted);
 }
 
 .activity-status {
@@ -434,6 +543,24 @@ canvas {
     }
 
     .primary, .secondary {
+        width: 100%;
+    }
+
+    .quick-intake__pills {
+        gap: 8px;
+    }
+
+    .quick-pill {
+        flex: 1 1 calc(50% - 8px);
+        text-align: center;
+    }
+
+    .custom-intake__field {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .custom-intake__field button {
         width: 100%;
     }
 

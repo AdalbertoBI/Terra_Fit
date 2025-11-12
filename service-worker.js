@@ -1,4 +1,4 @@
-const CACHE_NAME = 'hidrate-plus-cache-v1.0.0.0';
+const CACHE_NAME = 'hidrate-plus-cache-v1.1.1';
 const BASE_PATH = globalThis.location.pathname.replace(/service-worker\.js$/, '');
 const OFFLINE_URLS = [
   `${BASE_PATH}`,

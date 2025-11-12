@@ -3,6 +3,7 @@
   "short_name": "Hidrate+",
   "lang": "pt-BR",
   "description": "Calcule sua meta de hidratação e receba lembretes inteligentes com a PWA Hidrate+.",
+  "version": "1.1.1",
   "start_url": ".",
   "display": "standalone",
   "background_color": "#f7fbff",
