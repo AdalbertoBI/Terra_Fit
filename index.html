@@ -73,6 +73,14 @@
                     <input type="number" id="reminderInterval" min="15" max="240" step="15" value="60">
                 </label>
                 <label>
+                    Início da janela diária
+                    <input type="time" id="reminderStart" value="06:00">
+                </label>
+                <label>
+                    Fim da janela diária
+                    <input type="time" id="reminderEnd" value="21:00">
+                </label>
+                <label>
                     Quantidade por registro (ml)
                     <input type="number" id="drinkAmount" min="100" max="500" step="50" value="200">
                 </label>
@@ -98,11 +106,22 @@
                     <span class="stat-label">Consumido hoje</span>
                     <span class="stat-value" id="consumedToday">0 ml</span>
                 </div>
+                <div class="stat">
+                    <span class="stat-label">Ingestões diárias</span>
+                    <span class="stat-value" id="dailySessions">0</span>
+                </div>
             </div>
             <div class="progress">
                 <div class="progress-bar" id="progressBar"></div>
             </div>
             <p class="progress-message" id="motivationMessage">Vamos começar sua jornada de hidratação!</p>
+            <div class="next-reminder" aria-live="polite">
+                <div>
+                    <span class="next-reminder__label">Próximo lembrete</span>
+                    <span class="next-reminder__time" id="nextReminderTime">--:--</span>
+                </div>
+                <span class="next-reminder__countdown" id="nextReminderCountdown">Configure horários para iniciar os alertas.</span>
+            </div>
             <div class="actions">
                 <button class="primary" id="drinkNow">Bebi agora</button>
                 <button class="secondary" id="resetProgress">Reiniciar dia</button>

@@ -24,19 +24,34 @@ import { calculateDailyNeed, calculateProgress } from './calculations.js';
 import {
   requestNotificationPermission,
   isPermissionGranted,
-  startReminderLoop,
-  stopReminderLoop,
+  configureReminderSchedule,
+  cancelReminderSchedule,
   showHydrationNotification
 } from './notifications.js';
 import { renderWeeklyChart } from './chart.js';
 
 let profile = getProfile();
 let settings = getSettings();
+
+let settingsChanged = false;
+if (!settings.startTime) {
+  settings.startTime = '06:00';
+  settingsChanged = true;
+}
+if (!settings.endTime) {
+  settings.endTime = '21:00';
+  settingsChanged = true;
+}
+if (settingsChanged) {
+  saveSettings(settings);
+}
 let dailyNeed = calculateDailyNeed(profile);
 
 const profileForm = document.getElementById('profileForm');
 const reminderIntervalInput = document.getElementById('reminderInterval');
 const drinkAmountInput = document.getElementById('drinkAmount');
+const reminderStartInput = document.getElementById('reminderStart');
+const reminderEndInput = document.getElementById('reminderEnd');
 const requestNotificationsBtn = document.getElementById('requestNotifications');
 const reminderStatus = document.getElementById('reminderStatus');
 const drinkNowBtn = document.getElementById('drinkNow');
@@ -45,6 +60,7 @@ const dailyNeedEl = document.getElementById('dailyNeed');
 const cupsCountEl = document.getElementById('cupsCount');
 const consumedTodayEl = document.getElementById('consumedToday');
 const progressBarEl = document.getElementById('progressBar');
+const dailySessionsEl = document.getElementById('dailySessions');
 const motivationMessageEl = document.getElementById('motivationMessage');
 const historyListEl = document.getElementById('historyList');
 const weeklyChartCanvas = document.getElementById('weeklyChart');
@@ -60,6 +76,10 @@ const installButton = document.getElementById('installApp');
 const dismissInstallButton = document.getElementById('dismissInstall');
 const installBannerTitle = document.querySelector('.install-banner__title');
 const installBannerText = document.querySelector('.install-banner__text');
+const nextReminderTimeEl = document.getElementById('nextReminderTime');
+const nextReminderCountdownEl = document.getElementById('nextReminderCountdown');
+
+const baseDocumentTitle = document.title || 'Hidrate+';
 
 const INSTALL_STATE_KEY = 'hidrate_plus_install_state';
 const INSTALL_DISMISS_TIMEOUT = 1000 * 60 * 60 * 24 * 3; // 3 dias
@@ -83,6 +103,8 @@ let initialController = null;
 let swRefreshing = false;
 let updateToastElement = null;
 let updateReloadTimeout = null;
+let currentProgress = 0;
+let lastCountdownState = null;
 
 function init() {
   populateProfileForm();
@@ -93,9 +115,16 @@ function init() {
   updateStepUI();
   setupEventListeners();
   setupInstallPrompt();
+  updateCountdownUI();
   registerServiceWorker();
   scheduleReminders();
   startDayWatcher();
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      document.title = baseDocumentTitle;
+    }
+  });
 }
 
 function populateProfileForm() {
@@ -110,6 +139,12 @@ function populateProfileForm() {
 function populateSettings() {
   reminderIntervalInput.value = settings.reminderInterval;
   drinkAmountInput.value = settings.drinkAmount;
+  if (reminderStartInput) {
+    reminderStartInput.value = settings.startTime || '06:00';
+  }
+  if (reminderEndInput) {
+    reminderEndInput.value = settings.endTime || '21:00';
+  }
 }
 
 function applyTheme(theme) {
@@ -126,19 +161,24 @@ function updateDailyNeeds() {
   const todayKeyValue = todayKey();
   const history = getHistory();
   const todayTotal = history[todayKeyValue]?.total || 0;
+  const drinkAmount = Number(settings.drinkAmount) || 200;
+  const recommendedSessions = Math.max(1, Math.ceil(dailyNeed.totalMl / drinkAmount));
+
+  if (dailySessionsEl) {
+    dailySessionsEl.textContent = recommendedSessions.toLocaleString('pt-BR');
+  }
 
   dailyNeedEl.textContent = formatMl(dailyNeed.totalMl);
   cupsCountEl.textContent = formatCups(dailyNeed.cups);
   consumedTodayEl.textContent = formatMl(todayTotal);
 
   const progress = calculateProgress(todayTotal, dailyNeed.totalMl);
+  currentProgress = progress;
   progressBarEl.style.width = `${Math.min(progress, 100)}%`;
   progressBarEl.setAttribute('aria-valuenow', progress);
   progressBarEl.setAttribute('aria-valuemin', 0);
   progressBarEl.setAttribute('aria-valuemax', 100);
   motivationMessageEl.textContent = getMotivationMessage(progress);
-
-  updateReminderStatus(progress);
   renderWeeklyChart(weeklyChartCanvas, getWeeklyHistory(), dailyNeed.totalMl);
 }
 
@@ -172,6 +212,12 @@ function setupEventListeners() {
   profileForm.addEventListener('submit', handleProfileSubmit);
   reminderIntervalInput.addEventListener('change', handleReminderIntervalChange);
   drinkAmountInput.addEventListener('change', handleDrinkAmountChange);
+  if (reminderStartInput) {
+    reminderStartInput.addEventListener('change', handleReminderStartChange);
+  }
+  if (reminderEndInput) {
+    reminderEndInput.addEventListener('change', handleReminderEndChange);
+  }
   requestNotificationsBtn.addEventListener('click', handleNotificationRequest);
   drinkNowBtn.addEventListener('click', handleDrinkNow);
   resetProgressBtn.addEventListener('click', handleResetProgress);
@@ -374,6 +420,7 @@ function handleProfileSubmit(event) {
   profile = { ...profile, ...updatedProfile };
   saveProfile(profile);
   updateDailyNeeds();
+  scheduleReminders();
   showHydrationNotification({ title: 'Perfil atualizado', body: 'Sua meta de hidratação foi recalculada.' });
 }
 
@@ -388,6 +435,8 @@ function handleDrinkAmountChange(event) {
   const value = Number(event.target.value);
   settings = { ...settings, drinkAmount: value };
   saveSettings(settings);
+  updateDailyNeeds();
+  scheduleReminders();
 }
 
 async function handleNotificationRequest() {
@@ -395,7 +444,6 @@ async function handleNotificationRequest() {
     const granted = await requestNotificationPermission();
     if (granted) {
       scheduleReminders();
-      reminderStatus.textContent = `Notificações ativas a cada ${settings.reminderInterval} minutos.`;
       showHydrationNotification({ body: 'Você receberá lembretes periódicos de hidratação.' });
     } else {
       reminderStatus.textContent = 'Permissão de notificações não concedida.';
@@ -410,12 +458,14 @@ function handleDrinkNow() {
   const today = addConsumption(amount);
   consumedTodayEl.textContent = formatMl(today.total);
   updateDailyNeeds();
+  updateReminderStatus(lastCountdownState);
   updateHistoryUI();
 }
 
 function handleResetProgress() {
   resetDay();
   updateDailyNeeds();
+  updateReminderStatus(lastCountdownState);
   updateHistoryUI();
 }
 
@@ -442,37 +492,44 @@ async function handleWatchConnection() {
 }
 
 function scheduleReminders() {
-  stopReminderLoop();
-  updateReminderStatus();
+  const startLabel = settings.startTime || '06:00';
+  const endLabel = settings.endTime || '21:00';
 
   if (!isNotificationSupported()) {
+    cancelReminderSchedule();
+    updateCountdownUI({ timestamp: null, reason: 'unsupported', startTimeLabel: startLabel, endTimeLabel: endLabel });
     reminderStatus.textContent = 'Este navegador não suporta notificações.';
     return;
   }
 
   if (!isPermissionGranted()) {
+    cancelReminderSchedule();
+    updateCountdownUI({ timestamp: null, reason: 'missing-permission', startTimeLabel: startLabel, endTimeLabel: endLabel });
     reminderStatus.textContent = 'Permita notificações para ativar lembretes.';
     return;
   }
 
   const interval = Number(settings.reminderInterval);
-  if (!interval) {
-    reminderStatus.textContent = 'Defina um intervalo válido para iniciar lembretes.';
+  if (!interval || interval < 1) {
+    cancelReminderSchedule();
+    updateCountdownUI({ timestamp: null, reason: 'missing-interval', startTimeLabel: startLabel, endTimeLabel: endLabel });
+    reminderStatus.textContent = 'Defina um intervalo válido para iniciar os lembretes.';
     return;
   }
 
-  startReminderLoop(interval, () => {
-    const today = getHistory()[todayKey()]?.total || 0;
-    const progress = calculateProgress(today, dailyNeed.totalMl);
-    if (progress >= 100) {
-      return 'Parabéns! Meta diária alcançada. Hidrate-se ao longo do dia para manter o equilíbrio!';
-    }
-    return `Você atingiu ${progress}% da meta. Beba mais ${formatMl(Math.max(dailyNeed.totalMl - today, 0))}.`;
+  reminderStatus.textContent = 'Calculando próximo lembrete...';
+  updateCountdownUI({ timestamp: null, reason: 'calculating', startTimeLabel: startLabel, endTimeLabel: endLabel });
+
+  configureReminderSchedule({
+    intervalMinutes: interval,
+    startTime: startLabel,
+    endTime: endLabel,
+    getNotificationPayload: buildReminderNotificationPayload,
+    onCountdown: updateCountdownUI
   });
-  reminderStatus.textContent = `Notificações a cada ${interval} minutos.`;
 }
 
-function updateReminderStatus(progress = null) {
+function updateReminderStatus(state = lastCountdownState) {
   if (!isNotificationSupported()) {
     reminderStatus.textContent = 'Notificações não suportadas neste dispositivo.';
     return;
@@ -489,11 +546,37 @@ function updateReminderStatus(progress = null) {
     return;
   }
 
-  if (typeof progress === 'number' && progress >= 100) {
-    reminderStatus.textContent = 'Meta alcançada hoje! Continue hidratado. Lembretes continuam ativos.';
-  } else {
-    reminderStatus.textContent = `Notificações ativas a cada ${interval} minutos.`;
+  if (!state || !state.timestamp) {
+    switch (state?.reason) {
+      case 'missing-interval':
+        reminderStatus.textContent = 'Defina um intervalo válido para iniciar os lembretes.';
+        break;
+      case 'missing-permission':
+        reminderStatus.textContent = 'Permita notificações para ativar os lembretes.';
+        break;
+      case 'unsupported':
+        reminderStatus.textContent = 'Seu navegador não suporta notificações.';
+        break;
+      case 'calculating':
+        reminderStatus.textContent = 'Calculando próximo lembrete...';
+        break;
+      case 'inactive':
+      default:
+        reminderStatus.textContent = `Janela de lembretes entre ${state?.startTimeLabel || settings.startTime || '06:00'} e ${state?.endTimeLabel || settings.endTime || '21:00'}.`;
+    }
+    return;
   }
+
+  const countdownLabel = state.formattedDistance === 'agora'
+    ? 'Agora'
+    : `em ${state.formattedDistance}`;
+
+  if (currentProgress >= 100) {
+    reminderStatus.textContent = `Meta alcançada! Próximo lembrete às ${state.formattedTime} (${countdownLabel}).`;
+    return;
+  }
+
+  reminderStatus.textContent = `Notificações a cada ${interval} minutos. Próximo lembrete às ${state.formattedTime} (${countdownLabel}).`;
 }
 
 function registerServiceWorker() {
@@ -625,6 +708,7 @@ function startDayWatcher() {
       updateDailyNeeds();
       updateHistoryUI();
       updateStepUI();
+      scheduleReminders();
     }
   }, 60 * 1000);
 }
@@ -697,3 +781,114 @@ function showUpdateToast() {
 }
 
 init();
+
+function handleReminderStartChange(event) {
+  const value = normalizeTimeValue(event.target.value, settings.startTime || '06:00');
+  settings = { ...settings, startTime: value };
+  saveSettings(settings);
+  if (reminderStartInput) {
+    reminderStartInput.value = value;
+  }
+  scheduleReminders();
+}
+
+function handleReminderEndChange(event) {
+  const value = normalizeTimeValue(event.target.value, settings.endTime || '21:00');
+  settings = { ...settings, endTime: value };
+  saveSettings(settings);
+  if (reminderEndInput) {
+    reminderEndInput.value = value;
+  }
+  scheduleReminders();
+}
+
+function updateCountdownUI(state) {
+  lastCountdownState = state || null;
+
+  if (!nextReminderTimeEl || !nextReminderCountdownEl) {
+    updateReminderStatus(state);
+    return;
+  }
+
+  const startLabel = state?.startTimeLabel || settings.startTime || '06:00';
+  const endLabel = state?.endTimeLabel || settings.endTime || '21:00';
+
+  if (!state || !state.timestamp) {
+    nextReminderTimeEl.textContent = '--:--';
+    let message;
+    switch (state?.reason) {
+      case 'missing-permission':
+        message = 'Ative as notificações para receber lembretes.';
+        break;
+      case 'missing-interval':
+        message = 'Defina um intervalo para ativar os lembretes.';
+        break;
+      case 'unsupported':
+        message = 'Notificações indisponíveis neste dispositivo.';
+        break;
+      case 'calculating':
+        message = 'Calculando próximo lembrete...';
+        break;
+      case 'inactive':
+      default:
+        message = `Aguardando próxima janela a partir de ${startLabel}.`;
+    }
+    nextReminderCountdownEl.textContent = message;
+    document.title = baseDocumentTitle;
+    updateReminderStatus(state);
+    return;
+  }
+
+  nextReminderTimeEl.textContent = state.formattedTime;
+  if (state.remainingMs != null && state.remainingMs <= 0) {
+    nextReminderCountdownEl.textContent = 'Chegou a hora! Beba água agora.';
+  } else {
+    nextReminderCountdownEl.textContent = `Em ${state.formattedDistance}`;
+  }
+
+  if (document.visibilityState === 'hidden' && state.remainingMs && state.remainingMs > 0) {
+    document.title = `💧 Em ${state.formattedDistance}`;
+  } else {
+    document.title = baseDocumentTitle;
+  }
+
+  updateReminderStatus(state);
+}
+
+function buildReminderNotificationPayload() {
+  const history = getHistory();
+  const todayTotal = history[todayKey()]?.total || 0;
+  const remainingMl = Math.max(dailyNeed.totalMl - todayTotal, 0);
+  const drinkAmount = Number(settings.drinkAmount) || 200;
+  const suggestionAmount = remainingMl > 0 ? Math.min(drinkAmount, remainingMl) : drinkAmount;
+  const remainingDoses = remainingMl > 0 ? Math.max(1, Math.ceil(remainingMl / drinkAmount)) : 0;
+
+  if (remainingMl <= 0) {
+    return {
+      title: 'Hidratação de manutenção 💧',
+      body: `Meta diária concluída! Beba ${formatMl(drinkAmount)} para manter o ritmo.`
+    };
+  }
+
+  const dosesLabel = remainingDoses === 1 ? 'dose' : 'doses';
+  return {
+    title: 'Hora de beber água! 💧',
+    body: `Beba ${formatMl(suggestionAmount)} agora. Restam ${formatMl(remainingMl)} para sua meta (${remainingDoses} ${dosesLabel}).`,
+    timestamp: Date.now()
+  };
+}
+
+function normalizeTimeValue(value, fallback) {
+  if (typeof value !== 'string') {
+    return fallback;
+  }
+
+  const match = value.trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) {
+    return fallback;
+  }
+
+  const hours = Math.min(23, Math.max(0, Number(match[1])));
+  const minutes = Math.min(59, Math.max(0, Number(match[2])));
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+}

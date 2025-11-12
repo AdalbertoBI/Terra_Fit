@@ -19,6 +19,8 @@ const DEFAULT_PROFILE = {
 const DEFAULT_SETTINGS = {
   reminderInterval: 60,
   drinkAmount: 200,
+  startTime: '06:00',
+  endTime: '21:00',
   theme: 'light'
 };
 

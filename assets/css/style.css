@@ -201,6 +201,37 @@ input:focus, select:focus {
     font-weight: 700;
 }
 
+.next-reminder {
+    margin: 18px 0;
+    padding: 14px 16px;
+    background: var(--color-bg);
+    border-radius: 16px;
+    border: 1px dashed var(--color-border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.next-reminder__label {
+    display: block;
+    font-size: 0.85rem;
+    color: var(--color-muted);
+    margin-bottom: 4px;
+}
+
+.next-reminder__time {
+    font-size: 1.2rem;
+    font-weight: 700;
+}
+
+.next-reminder__countdown {
+    font-size: 0.95rem;
+    color: var(--color-text);
+    font-weight: 500;
+}
+
 .progress {
     margin: 18px 0 12px;
     background: var(--color-progress-bg);
@@ -448,6 +479,11 @@ canvas {
 
     .stat-value {
         font-size: 1.2rem;
+    }
+
+    .next-reminder {
+        flex-direction: column;
+        align-items: flex-start;
     }
 
     .install-banner__actions {
